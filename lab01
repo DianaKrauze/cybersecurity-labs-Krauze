@@ -1,1 +1,113 @@
+import string
+
+# Отримання даних від користувача
+name = input("Введіть ім'я: ")
+birthday = input("Введіть дату народження: ")
+password = input("Введіть пароль: ")
+
+# Список словникових слів для перевірки
+common_words = ["password", "admin", "user", "login", "test"]
+
+def analyze_password(password, name, birthday):
+    #Аналізує пароль на безпеку, перевіряючи зв'язок з особистими даними,
+    #складність та надаючи рекомендації.
+
+    total_score = 0
+    recommendations = []
+    analysis_result = {
+        "password": password,
+        "issues": [],
+        "score": 0,
+        "recommendations": []
+    }
+
+    # Приведення до нижнього регістру для порівняння
+    password_lower = password.lower()
+    name_lower = name.lower()
+    birthday_clean = birthday.replace(".", "")
+
+    # Перевірка наявності особистих даних
+    if name_lower in password_lower:
+        analysis_result["issues"].append("Пароль містить ім'я")
+    else:
+        total_score += 2
+        analysis_result["issues"].append("Пароль не містить ім'я")
+
+    if birthday_clean in password_lower:
+        analysis_result["issues"].append("Пароль містить дату народження")
+    else:
+        total_score += 2
+        analysis_result["issues"].append("Пароль не містить дату народження")
+
+    # Перевірка словникових слів
+    if any(word in password_lower for word in common_words):
+        analysis_result["issues"].append("Пароль містить словникове слово")
+    else:
+        total_score += 1
+        analysis_result["issues"].append("Пароль не містить словникових слів")
+
+    # Перевірка різноманітності символів
+    has_upper = sum(1 for c in password if c in string.ascii_uppercase)
+    has_lower = sum(1 for c in password if c in string.ascii_lowercase)
+    has_digits = sum(1 for c in password if c in string.digits)
+    has_special = sum(1 for c in password if c in string.punctuation)
+
+    # Оцінка за різноманітність символів
+    char_types = sum(1 for x in [has_upper, has_lower, has_digits, has_special] if x > 0)
+    if char_types >= 2:
+        total_score += 1
+    if char_types >= 3:
+        total_score += 1
+    if char_types == 4:
+        total_score += 1
+
+    # Додавання детальних даних про символи
+    analysis_result["issues"].append(f"Великі літери: {has_upper}")
+    analysis_result["issues"].append(f"Малі літери: {has_lower}")
+    analysis_result["issues"].append(f"Цифри: {has_digits}")
+    analysis_result["issues"].append(f"Спеціальні символи: {has_special}")
+
+    # Перевірка довжини пароля
+    length = len(password)
+    if length >= 6:
+        total_score += 1
+    if length >= 8:
+        total_score += 1
+    if length >= 12:
+        total_score += 1
+
+    analysis_result["issues"].append(f"Довжина пароля: {length}")
+
+    # Формування рекомендацій
+    if char_types < 3:
+        recommendations.append("Додайте більше типів символів (великі/малі літери, цифри, спеціальні символи).")
+    if length < 8:
+        recommendations.append("Збільште довжину пароля до 8 символів або більше.")
+    if name_lower in password_lower or birthday_clean in password_lower:
+        recommendations.append("Уникайте використання особистих даних (імені, дати народження).")
+    if any(word in password_lower for word in common_words):
+        recommendations.append("Уникайте використання поширених словникових слів.")
+
+    # Оцінка пароля (шкала від 1 до 10)
+    analysis_result["score"] = min(total_score, 10)
+    if total_score < 5:
+        analysis_result["recommendations"].append(f"Пароль слабкий ({analysis_result['score']}/10). {', '.join(recommendations)}")
+    elif 5 <= total_score <= 7:
+        analysis_result["recommendations"].append(f"Пароль середній ({analysis_result['score']}/10). {', '.join(recommendations)}")
+    elif 8 <= total_score <= 9:
+        analysis_result["recommendations"].append(f"Пароль надійний ({analysis_result['score']}/10). {', '.join(recommendations)}")
+    else:
+        analysis_result["recommendations"].append(f"Пароль дуже надійний ({analysis_result['score']}/10).")
+
+    return analysis_result
+
+# Виконання аналізу
+result = analyze_password(password, name, birthday)
+
+# Виведення результатів
+for issue in result["issues"]:
+    print(issue)
+for rec in result["recommendations"]:
+    print(rec)
+
 
