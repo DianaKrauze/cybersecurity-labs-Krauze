@@ -1,0 +1,106 @@
+import string
+
+alphabet = "abcdefghijklmnopqrstuvwxyz"
+length_alphabet = len(alphabet)
+
+
+
+def caesar_cipher(text, shift, mode='encrypt'):
+    result = ""
+    actual_shift = shift if mode == 'encrypt' else -shift
+
+    for char in text:
+        if char.lower() in alphabet:
+            is_upper = char.isupper()
+            char_lower = char.lower()
+            old_index = alphabet.find(char_lower)
+            new_index = (old_index + actual_shift) % length_alphabet
+            new_char = alphabet[new_index]
+            result += new_char.upper() if is_upper else new_char
+        else:
+            result += char
+
+    return result
+
+
+def vigenere_cipher(text, key, mode='encrypt'):
+    result = ""
+    key = key.lower()
+
+    # перетворюємо ключ на зсуви
+    key_indices = [alphabet.find(c) for c in key if c in alphabet]
+
+    if not key_indices:
+        return "Помилка: Ключ Віженера має містити лише англійські літери."
+
+    key_len = len(key_indices)
+    key_pos = 0
+
+    for char in text:
+        lower = char.lower()
+        if lower in alphabet:
+            is_upper = char.isupper()
+            old_index = alphabet.find(lower)
+
+            shift = key_indices[key_pos % key_len]
+            key_pos += 1
+
+            if mode == 'encrypt':
+                new_index = (old_index + shift) % length_alphabet
+            else:
+                new_index = (old_index - shift) % length_alphabet
+
+            new_char = alphabet[new_index]
+            result += new_char.upper() if is_upper else new_char
+        else:
+            result += char
+
+    return result
+
+
+
+def compare_results(original, caesar_res, vigenere_res):
+    print("\n=== Порівняльна таблиця ===")
+    print(f"{'Метод':<15} | {'Довжина':<10} | {'Читабельність':<15} | {'Складність ключа'}")
+    print("-" * 60)
+
+    print(f"{'Цезар':<15} | {len(caesar_res):<10} | {'низька':<15} | {'цифровий зсув'}")
+    print(f"{'Віженер':<15} | {len(vigenere_res):<10} | {'середня':<15} | {'слово'}")
+
+
+def main():
+    print("=== Порівняльний аналіз шифрів ===")
+
+    text = input("Введіть текст для шифрування: ")
+    date = input("Введіть вашу дату народження (формат ДДММРР): ")
+    surname = input("Введіть ваше прізвище: ")
+
+    # Ключ для Цезаря: сума цифр
+    caesar_shift = sum(int(d) for d in date if d.isdigit())
+
+    # Ключ для Віженера: прізвище
+    vigenere_key = surname.lower()
+
+    print("\n--- Шифрування ---")
+    encrypted_caesar = caesar_cipher(text, caesar_shift, 'encrypt')
+    encrypted_vigenere = vigenere_cipher(text, vigenere_key, 'encrypt')
+
+    print("Цезар:", encrypted_caesar)
+    print("Віженер:", encrypted_vigenere)
+
+    print("\n--- Розшифрування ---")
+    decrypted_caesar = caesar_cipher(encrypted_caesar, caesar_shift, 'decrypt')
+    decrypted_vigenere = vigenere_cipher(encrypted_vigenere, vigenere_key, 'decrypt')
+
+    print("Цезар:", decrypted_caesar)
+    print("Віженер:", decrypted_vigenere)
+
+    compare_results(text, encrypted_caesar, encrypted_vigenere)
+
+    print("\nВисновок:")
+    print("- Шифр Цезаря простий, легко зламується перебором.")
+    print("- Віженер значно стійкіший, але при короткому ключі теж вразливий.")
+    print("- Для реального захисту інформації класичні шифри не підходять.")
+
+
+main()
