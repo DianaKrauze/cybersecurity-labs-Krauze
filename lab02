@@ -4,7 +4,6 @@ alphabet = "abcdefghijklmnopqrstuvwxyz"
 length_alphabet = len(alphabet)
 
 
-
 def caesar_cipher(text, shift, mode='encrypt'):
     result = ""
     actual_shift = shift if mode == 'encrypt' else -shift
