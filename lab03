@@ -1,0 +1,191 @@
+import os
+from PIL import Image
+
+# Конфігурація
+input_image = 'river.jpg'
+output_image = 'river_stego.png'
+# Символ-маркер, який позначає кінець прихованого повідомлення
+# Це нульовий символ, представлений 8 нульовими бітами (00000000)
+delimiter = '\x00'
+
+
+
+# Допоміжні функції для конфертації
+def text_to_binary(text):
+    #Конвертує текстове повідомлення (включаючи delimiter) у двійковий рядок
+    # Додаємо маркер кінця до повідомлення перед конвертацією
+    message_with_delimiter = text + delimiter
+    binary_message = ''.join(
+        format(ord(char), '08b') for char in message_with_delimiter
+    )
+    return binary_message
+
+
+def binary_to_text(binary):
+    #Конвертує двійковий рядок у текстове повідомлення.
+    all_bytes = [binary[i:i + 8] for i in range(0, len(binary), 8)]
+    # Конвертуємо байти в символи
+    text = ''.join(
+        chr(int(byte, 2)) for byte in all_bytes
+    )
+    return text
+
+
+
+# Основні функції стеганографії
+def hide_message(image_path, message, output_path):
+    #Приховує текстове повідомлення в зображенні за принципом LSB.
+    try:
+        img = Image.open(image_path).convert('RGB')
+    except FileNotFoundError:
+        print(f"Помилка: Файл {image_path} не знайдено.")
+        return False, None
+    except Exception as e:
+        print(f"Помилка при відкритті зображення: {e}")
+        return False, None
+
+    # 1. Конвертувати текст у двійковий формат
+    binary_message = text_to_binary(message)
+    msg_length_bits = len(binary_message)
+
+    print("\n--- Етап 1: Приховування повідомлення ---")
+    print(f"Повідомлення для приховування: '{message}'")
+    print(f"Двійкове представлення (включно з маркером '{delimiter}'):")
+    print(binary_message)
+
+    # 2. Перевірка на достатність місця
+    # Кожен піксель (R, G, B) має 3 канали, кожен канал може нести 1 біт.
+    max_capacity_bits = img.width * img.height * 3
+    if msg_length_bits > max_capacity_bits:
+        print(f"\nПомилка: Повідомлення ({msg_length_bits} біт) завелике для зображення ({max_capacity_bits} біт).")
+        return False, None
+
+    # 3. Ініціалізація змінних для вбудовування
+    data_idx = 0
+    img_data = list(img.getdata())  # Отримання плоского списку пікселів (R, G, B, R, G, B, ...)
+    new_data = []
+
+    # 4. Прочитати пікселі зображення та замінити молодші біти
+    for pixel in img_data:
+        # Якщо всі біти повідомлення вже приховані, копіюємо решту пікселів без змін
+        if data_idx >= msg_length_bits:
+            new_data.extend(pixel)
+            continue
+
+        new_pixel = []
+        for component in pixel:
+            if data_idx < msg_length_bits:
+                # Отримуємо наступний біт повідомлення
+                message_bit = int(binary_message[data_idx])
+
+                # Замінюємо LSB:
+                # (component & 0xFE) обнуляє останній біт
+                # (| message_bit) встановлює його на біт повідомлення
+                new_component = (component & 0xFE) | message_bit
+                new_pixel.append(new_component)
+                data_idx += 1
+            else:
+                new_pixel.append(component)
+
+        new_data.extend(new_pixel)
+
+    # 5. Створення та збереження модифікованого зображення
+    new_img = Image.new(img.mode, img.size)
+    # Перетворюємо плоский список назад у кортежі пікселів для setdata
+    pixels_for_setdata = [tuple(new_data[i:i + 3]) for i in range(0, len(new_data), 3)]
+    new_img.putdata(pixels_for_setdata)
+
+    # Зберігаємо у форматі PNG, оскільки він стиснення без втрат,
+    # що гарантує збереження прихованих даних.
+    new_img.save(output_path)
+
+    print(f"\n Повідомлення успішно приховано. Зображення збережено як: {output_path}")
+    return True, binary_message
+
+
+def extract_message(image_path):
+    #Витягує приховане повідомлення зі stego-зображення.
+    try:
+        img = Image.open(image_path).convert('RGB')
+    except FileNotFoundError:
+        print(f"\nПомилка: Файл stego-зображення {image_path} не знайдено.")
+        return False, None
+    except Exception as e:
+        print(f"Помилка при відкритті зображення: {e}")
+        return False, None
+
+    print("\n--- Етап 2: Витягування повідомлення ---")
+
+    binary_extracted = ""
+    # 1. Ітерація та вилучення LSB
+    for pixel in img.getdata():
+        for component in pixel:
+            # Витягуємо LSB: (component & 1)
+            binary_extracted += str(component & 1)
+
+            # 2. Перевірка на маркер кінця кожні 8 біт
+            if len(binary_extracted) % 8 == 0:
+                # 3. Конвертація поточного байта в символ
+                current_byte = binary_extracted[-8:]
+                current_char = chr(int(current_byte, 2))
+
+                # 4. Розпізнавання маркера
+                if current_char == delimiter:
+                    # Якщо знайдено маркер, повертаємо все, крім нього
+                    final_message = binary_to_text(binary_extracted)[:-1]
+                    print("Повідомлення успішно витягнуто!")
+                    print(f"Витягнуте повідомлення: {final_message}")
+                    return True, final_message
+
+    # Якщо цикл завершився, а маркер не знайдено
+    print("Помилка: Не вдалося витягти повідомлення (маркер кінця не знайдено).")
+    return False, None
+
+
+def analyze_file_sizes(file1_path, file2_path):
+    #Проводить порівняльний аналіз розмірів файлів.
+    print("\n--- Етап 3: Порівняльний аналіз зображень ---")
+
+    # Отримуємо розміри файлів
+    size1 = os.path.getsize(file1_path) if os.path.exists(file1_path) else 0
+    size2 = os.path.getsize(file2_path) if os.path.exists(file2_path) else 0
+
+    print(f"Початкове зображення ({file1_path}): {size1} байт")
+    print(f"Stego-зображення ({file2_path}): {size2} байт")
+
+    difference = size2 - size1
+    if difference > 0:
+        print(f"Різниця: Stego-зображення більше на {difference} байт.")
+    elif difference < 0:
+        print(f"Різниця: Stego-зображення менше на {abs(difference)} байт.")
+    else:
+        print("Різниця: Розміри файлів збігаються.")
+
+    print("\nАналіз візуальних відмінностей:")
+    print(
+        "Візуальні відмінності між 'river.jpg' та 'river_stego.png' зазвичай є нульовими або вкрай незначними, оскільки LSB змінює лише 1/256 частину значення пікселя.")
+
+
+
+# Головна логіка програми
+if __name__ == "__main__":
+
+    # Запит повідомлення від користувача
+    user_message = input("\nВведіть повідомлення для приховування (лише англійські літери): ")
+    if not user_message:
+        print("Повідомлення не може бути порожнім. Вихід.")
+        exit()
+
+    # ЕТАП 1: Приховування
+    success, binary_data = hide_message(input_image, user_message, output_image)
+
+    if success:
+        # ЕТАП 2: Витягування
+        # Витягуємо повідомлення з щойно збереженого stego-зображення
+        extract_success, extracted_message = extract_message(output_image)
+
+        # ЕТАП 3: Аналіз
+        if os.path.exists(input_image) and os.path.exists(output_image):
+            analyze_file_sizes(input_image, output_image)
+        else:
+            print("\nНеможливо провести аналіз розмірів файлів, оскільки один або обидва файли не існують.")
