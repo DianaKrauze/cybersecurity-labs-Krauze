@@ -103,7 +103,6 @@ def analyze_password(password, name, birthday):
 
 # Виконання аналізу
 result = analyze_password(password, name, birthday)
-
 # Виведення результатів
 for issue in result["issues"]:
     print(issue)
