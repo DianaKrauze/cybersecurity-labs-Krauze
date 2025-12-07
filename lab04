@@ -1,0 +1,136 @@
+import hashlib
+import binascii
+import os
+
+MODULUS = 1000007  # Використання модулю для спрощеної математики
+
+
+#Генерація ключів
+def generate_keys(name, dob, secret):
+    raw_string = (name + dob + secret).encode('utf-8')
+    # Приватний ключ: SHA-256 хеш, конвертований у велике число
+    private_key_hex = hashlib.sha256(raw_string).hexdigest()
+    private_key_int = int(private_key_hex, 16)
+
+    # Публічний ключ: спрощена математика (множення на 7 та застосування модуля)
+    public_key_int = (private_key_int * 7) % MODULUS
+
+    print("---Генерація ключів ---")
+    print(f"Приватний ключ (Hex): {private_key_hex}")
+    print(f"Публічний ключ (Int): {public_key_int}")
+
+    return private_key_int, public_key_int
+
+
+# Функція хешування документа
+def hash_document(file_path):
+    if not os.path.exists(file_path):
+        print(f"Помилка: Файл '{file_path}' не знайдено.")
+        return None
+
+    hasher = hashlib.sha256()
+    with open(file_path, 'rb') as file:
+        while True:
+            chunk = file.read(4096)
+            if not chunk:
+                break
+            hasher.update(chunk)
+
+    document_hash_hex = hasher.hexdigest()
+    document_hash_int = int(document_hash_hex, 16)
+
+
+    return document_hash_int
+
+
+# Функція створення підпису
+def create_signature(document_hash_int, private_key_int):
+    # Підпис: хеш_документу XOR приватний_ключ
+    signature_int = document_hash_int ^ private_key_int
+    return signature_int
+
+
+# Функція перевірки підпису
+def verify_signature(file_path, signature_int, private_key_int):
+    # Обчислюємо хеш ПОТОЧНОГО документа
+    current_hash_int = hash_document(file_path)
+    if current_hash_int is None:
+        return False
+
+    # Відновлюємо оригінальний хеш з підпису (Обернена операція XOR)
+    reconstructed_hash_int = signature_int ^ private_key_int
+
+    # Порівняння: чи збігається відновлений хеш із поточним хешем документа?
+    is_valid = (reconstructed_hash_int == current_hash_int)
+
+    return is_valid
+
+
+#Основна функція
+def main():
+    # Вхідні дані
+    name = input("Введіть ваше ім'я: ")
+    dob = input("Введіть вашу дату народження (ДД.ММ.РРРР): ")
+    secret = input("Введіть секретне слово: ")
+    document_file = input("Введіть назву файлу документа (наприклад, document.txt): ")
+
+    # Створюємо пустий document.txt, якщо його немає
+    if not os.path.exists(document_file):
+        with open(document_file, "w", encoding='utf-8') as f:
+            f.write("Це тестовий документ для підписання.\n")
+
+    #Генерація ключів
+    private_key, public_key = generate_keys(name, dob, secret)
+
+    print("-" * 40)
+
+    #Обчислення хешу документа
+    document_hash = hash_document(document_file)
+    if document_hash is None:
+        return
+
+    print(f"Хеш документа (Int): {document_hash}")
+    print("-" * 40)
+
+    # Створення підпису (використовуємо Приватний ключ)
+    signature = create_signature(document_hash, private_key)
+    print(f"Створений Підпис (Int): {signature}")
+
+    # Зберігаємо підпис для імітації передачі
+    with open("signature.txt", "w") as f:
+        f.write(str(signature))
+
+    print("-" * 40)
+
+    # Перевірка 1: Оригінальний документ та оригінальний підпис
+    print("--- Тест 1: Перевірка оригіналу ---")
+
+    is_valid = verify_signature(document_file, signature, private_key)
+
+    if is_valid:
+        print("[РЕЗУЛЬТАТ] Підпис дійсний. (Цілісність підтверджена)")
+    else:
+        print("[РЕЗУЛЬТАТ] Підпис підроблений. (Помилка)")
+
+    print("-" * 40)
+
+    # Демонстрація виявлення підробки
+    print("--- Тест 2: Виявлення змін ---")
+
+    # Модифікація файлу
+    with open(document_file, "a", encoding='utf-8') as f:
+        f.write("\n\n//Цей рядок було додано для демонстрації підробки!")
+
+    print(f"Файл '{document_file}' змінено. Перевіряємо знову...")
+
+    # Повторна перевірка (зі старим підписом)
+    is_valid_forgery = verify_signature(document_file, signature, private_key)
+
+    if is_valid_forgery:
+        print("[РЕЗУЛЬТАТ] Помилка системи: Підпис спрацював на зміненому документі.")
+    else:
+        print("[РЕЗУЛЬТАТ] Підпис підроблений. (Зміни виявлено)")
+
+
+if __name__ == "__main__":
+    main()
