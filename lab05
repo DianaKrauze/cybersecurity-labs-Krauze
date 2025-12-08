@@ -1,0 +1,228 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+import hashlib
+import base64
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import os
+
+
+#Ключові функції шифрування
+
+def generate_fernet_key(name, email):
+
+    if not name or not email:
+        raise ValueError("Ім'я та Email не можуть бути порожніми для генерації ключа.")
+
+    # Комбінування персональних даних
+    personal_data = f"{name}{email}".encode('utf-8')
+
+    salt = hashlib.sha256(personal_data).digest()[:16]
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=480000,
+    )
+    # Ключ повинен бути Base64-безпечний (url-safe)
+    key = base64.urlsafe_b64encode(kdf.derive(personal_data))
+    return key.decode('utf-8')
+
+
+def encrypt_message(message, key_str):
+    f = Fernet(key_str.encode('utf-8'))
+    token = f.encrypt(message.encode('utf-8'))
+    return token.decode('utf-8')
+
+
+def decrypt_message(encrypted_data, key_str):
+    try:
+        f = Fernet(key_str.encode('utf-8'))
+        decrypted = f.decrypt(encrypted_data.encode('utf-8'))
+        return decrypted.decode('utf-8')
+    except Exception as e:
+        # Обробка помилок (невірний ключ, пошкоджені дані)
+        return f"Помилка розшифрування: {e}"
+
+
+# Графічний інтерфейс
+
+class EmailCipherApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("Email-шифратор (ЛР №5)")
+        master.geometry("700x650")
+
+        # Кольори та шрифти
+        self.BG_COLOR = "#2c3e50"  # Темно-синій (Midnight Blue)
+        self.ACCENT_COLOR = "#f1c40f"  # Золотисто-жовтий (Sunflower Yellow)
+        self.TEXT_COLOR = "#ecf0f1"  # Світло-сірий
+        self.FONT_TITLE = ("Montserrat", 16, "bold")
+        self.FONT_LABEL = ("Montserrat", 10)
+        self.FONT_TEXTAREA = ("Courier New", 10)
+
+        # Стилізація основного вікна
+        master.config(bg=self.BG_COLOR)
+
+        # Фрейм для елементів
+        main_frame = tk.Frame(master, bg=self.BG_COLOR, padx=15, pady=15)
+        main_frame.pack(expand=True, fill='both')
+
+        # Заголовок
+        ttk.Label(main_frame, text="Захищена комунікація (Fernet/AES)",
+                  font=self.FONT_TITLE, background=self.BG_COLOR,
+                  foreground=self.ACCENT_COLOR).pack(pady=10)
+
+        # --- Налаштування стилів TTK для кнопок ---
+        style = ttk.Style()
+        style.theme_use('default')
+        # Налаштування стилю кнопок
+        style.configure('TButton',
+                        font=("Arial", 10, "bold"),
+                        background=self.ACCENT_COLOR,
+                        foreground=self.BG_COLOR,
+                        relief="flat",
+                        padding=10)
+        style.map('TButton',
+                  background=[('active', '#f39c12')])  # Зміна кольору при наведенні
+
+        #Поля для персональних даних та ключа
+
+        key_frame = tk.LabelFrame(main_frame, text="Персональні дані та Ключ",
+                                  bg=self.BG_COLOR, fg=self.TEXT_COLOR,
+                                  font=self.FONT_LABEL, padx=10, pady=10)
+        key_frame.pack(fill='x', pady=10)
+
+        # Ім'я
+        ttk.Label(key_frame, text="Ім'я / Прізвище (для ключа):",
+                  background=self.BG_COLOR, foreground=self.TEXT_COLOR,
+                  font=self.FONT_LABEL).grid(row=0, column=0, sticky='w', padx=5, pady=5)
+        self.name_entry = ttk.Entry(key_frame, width=40, font=self.FONT_LABEL)
+        self.name_entry.grid(row=0, column=1, sticky='ew', padx=5, pady=5)
+        self.name_entry.insert(0, "Іван Петренко")  # Приклад
+
+        # Email
+        ttk.Label(key_frame, text="Email (для ключа):",
+                  background=self.BG_COLOR, foreground=self.TEXT_COLOR,
+                  font=self.FONT_LABEL).grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        self.email_entry = ttk.Entry(key_frame, width=40, font=self.FONT_LABEL)
+        self.email_entry.grid(row=1, column=1, sticky='ew', padx=5, pady=5)
+        self.email_entry.insert(0, "ivan.petrenko@gmail.com")  # Приклад
+
+        # Ключ
+        ttk.Label(key_frame, text="Ключ шифрування (Fernet):",
+                  background=self.BG_COLOR, foreground=self.TEXT_COLOR,
+                  font=self.FONT_LABEL).grid(row=2, column=0, sticky='w', padx=5, pady=5)
+        self.key_entry = ttk.Entry(key_frame, width=40, font=self.FONT_LABEL)
+        self.key_entry.grid(row=2, column=1, sticky='ew', padx=5, pady=5)
+
+        # Кнопка "Згенерувати ключ"
+        ttk.Button(key_frame, text="Згенерувати Ключ",
+                   command=self.handle_generate_key).grid(row=3, column=0, columnspan=2, pady=10)
+
+        key_frame.grid_columnconfigure(1, weight=1)
+
+        #Поле для Вхідного Повідомлення
+
+        message_frame = tk.LabelFrame(main_frame, text="Вхідний текст / Зашифроване повідомлення",
+                                      bg=self.BG_COLOR, fg=self.TEXT_COLOR,
+                                      font=self.FONT_LABEL, padx=10, pady=10)
+        message_frame.pack(fill='x', pady=10)
+
+        self.message_text = tk.Text(message_frame, height=8, width=70,
+                                    font=self.FONT_TEXTAREA, bg=self.TEXT_COLOR, fg=self.BG_COLOR)
+        self.message_text.pack(fill='both', expand=True, padx=5, pady=5)
+        self.message_text.insert('1.0', "Зустрічаємося завтра о 15:00. Секретний код: 71329.")  # Приклад
+
+        #Кнопки Дії
+
+        action_frame = tk.Frame(main_frame, bg=self.BG_COLOR)
+        action_frame.pack(fill='x', pady=10)
+
+        ttk.Button(action_frame, text="Зашифрувати",
+                   command=self.handle_encrypt).pack(side='left', expand=True, fill='x', padx=5)
+
+        ttk.Button(action_frame, text="Розшифрувати",
+                   command=self.handle_decrypt).pack(side='right', expand=True, fill='x', padx=5)
+
+        #Поле для Результату
+
+        result_frame = tk.LabelFrame(main_frame, text="Результат",
+                                     bg=self.BG_COLOR, fg=self.TEXT_COLOR,
+                                     font=self.FONT_LABEL, padx=10, pady=10)
+        result_frame.pack(fill='x', pady=10)
+
+        self.result_text = tk.Text(result_frame, height=8, width=70,
+                                   font=self.FONT_TEXTAREA, bg=self.TEXT_COLOR, fg=self.BG_COLOR)
+        self.result_text.pack(fill='both', expand=True, padx=5, pady=5)
+
+    #Обробники подій
+
+    def handle_generate_key(self):
+        name = self.name_entry.get()
+        email = self.email_entry.get()
+
+        if not name or not email:
+            messagebox.showerror("Помилка", "Будь ласка, введіть Ім'я та Email для генерації ключа!")
+            return
+
+        try:
+            key = generate_fernet_key(name, email)
+            self.key_entry.delete(0, tk.END)
+            self.key_entry.insert(0, key)
+            self.result_text.delete('1.0', tk.END)
+            self.result_text.insert('1.0',
+                                    f"Ключ успішно згенеровано на основі:\n{name} та {email}.\n\nЦей ключ потрібно безпечно передати отримувачу для розшифрування.")
+        except Exception as e:
+            messagebox.showerror("Помилка генерації", str(e))
+
+    def handle_encrypt(self):
+        message = self.message_text.get('1.0', tk.END).strip()
+        key_str = self.key_entry.get()
+
+        if not key_str:
+            messagebox.showerror("Помилка", "Ключ шифрування не може бути порожнім!")
+            return
+        if not message:
+            messagebox.showerror("Помилка", "Введіть повідомлення для шифрування.")
+            return
+
+        try:
+            encrypted = encrypt_message(message, key_str)
+            self.result_text.delete('1.0', tk.END)
+            self.result_text.insert('1.0', encrypted)
+            self.message_text.delete('1.0', tk.END)
+            self.message_text.insert('1.0', message)
+            messagebox.showinfo("Успіх",
+                                "Повідомлення зашифровано! Зашифровані дані скопіюйте та відправте отримувачу разом із темою листа.")
+        except Exception as e:
+            messagebox.showerror("Помилка шифрування", str(e))
+
+    def handle_decrypt(self):
+        encrypted_data = self.message_text.get('1.0', tk.END).strip()
+        key_str = self.key_entry.get()
+
+        if not key_str:
+            messagebox.showerror("Помилка", "Ключ шифрування не може бути порожнім!")
+            return
+        if not encrypted_data:
+            messagebox.showerror("Помилка", "Вставте зашифроване повідомлення у верхнє поле.")
+            return
+
+        decrypted = decrypt_message(encrypted_data, key_str)
+        self.result_text.delete('1.0', tk.END)
+        self.result_text.insert('1.0', decrypted)
+
+        if "Помилка розшифрування" in decrypted:
+            messagebox.showerror("Помилка",
+                                 "Не вдалося розшифрувати повідомлення. Перевірте правильність ключа та цілісність зашифрованих даних.")
+        else:
+            messagebox.showinfo("Успіх", "Повідомлення успішно розшифровано.")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = EmailCipherApp(root)
+    root.mainloop()
