@@ -1,0 +1,211 @@
+import sqlite3
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+
+#Ініціалізація бази даних
+def init_db():
+    conn = sqlite3.connect('voting_data.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS candidates (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            party TEXT NOT NULL,
+            votes INTEGER
+        )
+    ''')
+    candidates_data = [
+        ('Іван Петренко', 'Партія "Єдність"', 540),
+        ('Олена Коваленко', 'Партія "Майбутнє"', 380),
+        ('Адміністратор', 'Службовий Кандидат', 1),
+        ('Сергій Вікторович', 'Незалежний', 210)
+    ]
+    cursor.execute("DELETE FROM candidates")
+    cursor.executemany("INSERT INTO candidates (name, party, votes) VALUES (?, ?, ?)", candidates_data)
+    conn.commit()
+    conn.close()
+
+
+#Логіка пошуку(вразлива та захищена)
+
+def vulnerable_search(conn, search_term):
+    sql_query = f"SELECT name, party, votes FROM candidates WHERE name = '{search_term}'"
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql_query)
+        return cursor.fetchall()
+    except sqlite3.Error as e:
+        return f"Помилка SQL: {e}"
+
+
+def secure_search(conn, search_term):
+    sql_query = "SELECT name, party, votes FROM candidates WHERE name = ?"
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql_query, (search_term,))
+        return cursor.fetchall()
+    except sqlite3.Error as e:
+        return f"Помилка SQL: {e}"
+
+
+# Дизайн інтерфейсу
+
+class Application(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("SQL-ін'єкція")
+        self.geometry("850x650")
+        self.conn = sqlite3.connect('voting_data.db')
+
+        # Основні кольори Dark Theme
+        bg_primary = '#1e1e1e'
+        bg_secondary = '#333333'
+        text_color = '#FFFFFF'
+        accent_color = '#00BFFF'
+        attack_color = '#FF4500'
+
+        self.config(bg=bg_primary)
+
+        # Налаштування стилю
+        style = ttk.Style(self)
+        style.theme_use('clam')
+
+        # Стиль для кнопок (Rounded look)
+        style.element_create("Rounded.Button", "from", "clam")
+        style.configure("Custom.TButton",
+                        font=('Arial', 12, 'bold'),
+                        padding=10,
+                        foreground=text_color,
+                        background=accent_color,
+                        relief="flat",
+                        borderwidth=0,
+                        focuscolor=bg_primary)
+        style.map("Custom.TButton",
+                  background=[('active', '#0099CC')],
+                  relief=[('pressed', 'flat')])
+
+        # Стиль для Вкладок (Notebook)
+        style.configure("TNotebook", background=bg_primary, borderwidth=0)
+        style.configure("TNotebook.Tab",
+                        background=bg_secondary,
+                        foreground=text_color,
+                        padding=[20, 8],
+                        font=('Arial', 11, 'bold'))
+        style.map("TNotebook.Tab",
+                  background=[('selected', bg_primary)],
+                  foreground=[('selected', accent_color)])
+
+        # Стиль для Міток та Фреймів
+        style.configure("TFrame", background=bg_primary)
+        style.configure("TLabel", background=bg_primary, foreground=text_color, font=('Arial', 12))
+
+        # Стиль для Поля Вводу
+        style.configure("TEntry", fieldbackground=bg_secondary, foreground=text_color, borderwidth=1, relief="flat")
+
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(pady=20, padx=20, fill="both", expand=True)
+
+        #Змінні передаються як аргументи
+        self.create_vulnerable_tab(bg_primary, bg_secondary, text_color, attack_color)
+        self.create_secure_tab(bg_primary, bg_secondary, text_color, accent_color)
+
+    def create_vulnerable_tab(self, bg_p, bg_s, text_c, attack_c):
+        frame = ttk.Frame(self.notebook, padding="20")
+        self.notebook.add(frame, text='Вразлива Версія')
+
+
+        ttk.Label(frame, text="Уразливий Пошук Кандидата", font=('Arial', 18, 'bold'), foreground=attack_c).pack(
+            pady=15)
+        ttk.Label(frame, text="Введіть повне ім'я для пошуку:", font=('Arial', 12)).pack(pady=5)
+
+        self.vulnerable_entry = ttk.Entry(frame, width=50, font=('Arial', 14))
+        self.vulnerable_entry.pack(pady=10)
+
+        search_button = ttk.Button(frame, text="Шукати Кандидата (Вразливо)", style="Custom.TButton",
+                                   command=self.handle_vulnerable_search)
+        search_button.pack(pady=15)
+
+        ttk.Label(frame, text="Результати SQL-запиту:", font=('Arial', 12, 'bold')).pack(pady=10)
+        self.vulnerable_result_text = tk.Text(frame, height=15, width=80,
+                                              bg=bg_s, fg=text_c,
+                                              font=('Courier New', 11), relief=tk.FLAT, bd=1, insertbackground=text_c)
+        self.vulnerable_result_text.pack(pady=10, fill="both", expand=True)
+
+
+
+    def create_secure_tab(self, bg_p, bg_s, text_c, accent_c):
+
+        frame = ttk.Frame(self.notebook, padding="20")
+        self.notebook.add(frame, text='Захищена Версія')
+
+        ttk.Label(frame, text="Захищений Пошук Кандидата", font=('Arial', 18, 'bold'), foreground=accent_c).pack(
+            pady=15)
+        ttk.Label(frame, text="Введіть повне ім'я для пошуку:", font=('Arial', 12)).pack(pady=5)
+
+        self.secure_entry = ttk.Entry(frame, width=50, font=('Arial', 14))
+        self.secure_entry.pack(pady=10)
+
+        search_button = ttk.Button(frame, text="Шукати Кандидата (Захищено)", style="Custom.TButton",
+                                   command=self.handle_secure_search)
+        search_button.pack(pady=15)
+
+        ttk.Label(frame, text="Результати SQL-запиту:", font=('Arial', 12, 'bold')).pack(pady=10)
+        self.secure_result_text = tk.Text(frame, height=15, width=80,
+                                          bg=bg_s, fg=text_c,
+                                          font=('Courier New', 11), relief=tk.FLAT, bd=1, insertbackground=text_c)
+        self.secure_result_text.pack(pady=10, fill="both", expand=True)
+
+
+    #Обробники подій
+
+    def display_results(self, result_widget, results, version, search_term):
+        result_widget.delete(1.0, tk.END)
+        result_widget.insert(tk.END, f"--- {version} РЕЗУЛЬТАТ ---\n")
+
+        is_attack = any(p in search_term for p in ["'", "--", "OR 1=1"])
+        text_color = '#FFFFFF'
+        attack_color = '#FF4500'
+
+        if isinstance(results, str) and results.startswith("Помилка SQL:"):
+            # Відображення синтаксичних помилок
+            result_widget.insert(tk.END, f"\n{results}\n")
+            result_widget.tag_config('error', foreground=attack_color, font=('Courier New', 10, 'bold'))
+            result_widget.tag_add('error', '3.0', 'end')
+            messagebox.showerror("Помилка SQL", results)
+        elif not results:
+            # Обробка випадку, коли нічого не знайдено
+            result_widget.insert(tk.END, "\nКандидат не знайдений або запит не повернув даних.\n")
+            if version == "ЗАХИЩЕНА" and is_attack:
+                # Повідомлення про блокування атаки з'являється лише при спробі ін'єкції на захищеній версії
+                messagebox.showinfo("БЛОКУВАННЯ АТАКИ",
+                                    "На захищеній версії пейлоад було оброблено як звичайний текст і атака заблокована.")
+        else:
+            # Успішне відображення даних
+            header = f"{'Ім\'я':<25} {'Партія':<25} {'Голоси':<10}\n"
+            result_widget.insert(tk.END, header)
+            result_widget.insert(tk.END, "-" * len(header) + "\n")
+            for row in results:
+                result_widget.insert(tk.END, f"{row[0]:<25} {row[1]:<25} {row[2]:<10}\n")
+
+            # Демонстрація успішного витоку даних (лише для вразливої версії при атаці)
+            if version == "ВРАЗЛИВА" and is_attack and len(results) > 1:
+                messagebox.showinfo("!!! УСПІХ АТАКИ !!!",
+                                    f"SQL-ін'єкція успішна! Отримано {len(results)} записів з бази даних (витік даних).")
+
+    def handle_vulnerable_search(self):
+        search_term = self.vulnerable_entry.get()
+        results = vulnerable_search(self.conn, search_term)
+        self.display_results(self.vulnerable_result_text, results, "ВРАЗЛИВА", search_term)
+
+    def handle_secure_search(self):
+        search_term = self.secure_entry.get()
+        results = secure_search(self.conn, search_term)
+        self.display_results(self.secure_result_text, results, "ЗАХИЩЕНА", search_term)
+
+
+#ЗАПУСК
+if __name__ == "__main__":
+    init_db()
+    app = Application()
+    app.mainloop()
