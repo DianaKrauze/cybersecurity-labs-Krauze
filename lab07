@@ -1,0 +1,380 @@
+import os
+import time
+import hashlib
+import json
+from datetime import datetime
+from PIL import Image
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+
+
+# Стеганографія
+class SteganographyModule:
+    def __init__(self):
+        self.delimiter = '\x00'
+
+    def text_to_binary(self, text):
+        message_with_delimiter = text + self.delimiter
+        return ''.join(format(ord(char), '08b') for char in message_with_delimiter)
+
+    def hide_message(self, image_path, message, output_path):
+        start_time = time.time()
+        img = Image.open(image_path).convert('RGB')
+        binary_message = self.text_to_binary(message)
+
+        data_idx = 0
+        img_data = list(img.getdata())
+        new_data = []
+
+        for pixel in img_data:
+            new_pixel = []
+            for component in pixel:
+                if data_idx < len(binary_message):
+                    new_component = (component & 0xFE) | int(binary_message[data_idx])
+                    new_pixel.append(new_component)
+                    data_idx += 1
+                else:
+                    new_pixel.append(component)
+            new_data.extend(new_pixel)
+
+        new_img = Image.new(img.mode, img.size)
+        new_img.putdata([tuple(new_data[i:i + 3]) for i in range(0, len(new_data), 3)])
+        new_img.save(output_path)
+
+        return time.time() - start_time
+
+    def extract_message(self, image_path):
+        start_time = time.time()
+        img = Image.open(image_path).convert('RGB')
+        binary_extracted = ""
+
+        for pixel in img.getdata():
+            for component in pixel:
+                binary_extracted += str(component & 1)
+                if len(binary_extracted) % 8 == 0:
+                    if chr(int(binary_extracted[-8:], 2)) == self.delimiter:
+                        all_bytes = [binary_extracted[i:i + 8] for i in range(0, len(binary_extracted) - 8, 8)]
+                        message = ''.join(chr(int(byte, 2)) for byte in all_bytes)
+                        return message, time.time() - start_time
+        return None, time.time() - start_time
+
+
+# Цифровий підпис
+class SignatureModule:
+    def generate_keys(self, name, dob, secret):
+        raw_string = (name + dob + secret).encode('utf-8')
+        private_key = int(hashlib.sha256(raw_string).hexdigest(), 16)
+        public_key = (private_key * 7) % 1000007
+        return private_key, public_key
+
+    def create_signature(self, content, private_key):
+        content_hash = int(hashlib.sha256(content.encode()).hexdigest(), 16)
+        return content_hash ^ private_key
+
+    def verify_signature(self, content, signature, private_key):
+        current_hash = int(hashlib.sha256(content.encode()).hexdigest(), 16)
+        reconstructed_hash = signature ^ private_key
+        return reconstructed_hash == current_hash
+
+
+# Головна система
+class SecureSystem:
+    def __init__(self):
+        self.stego = SteganographyModule()
+        self.signature = SignatureModule()
+
+    def protect(self, text_file, image_file, output_image, name, dob, secret):
+        results = {'steps': []}
+        total_start = time.time()
+
+        # Читання файлу
+        with open(text_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Генерація ключів
+        t1 = time.time()
+        private_key, public_key = self.signature.generate_keys(name, dob, secret)
+        results['steps'].append(('Генерація ключів', time.time() - t1))
+
+        # Створення підпису
+        t2 = time.time()
+        signature = self.signature.create_signature(content, private_key)
+        results['steps'].append(('Створення підпису', time.time() - t2))
+
+        # Підготовка даних
+        protected_data = json.dumps({
+            'content': content,
+            'signature': signature,
+            'timestamp': datetime.now().isoformat()
+        })
+
+        # Приховування в зображенні
+        t3 = self.stego.hide_message(image_file, protected_data, output_image)
+        results['steps'].append(('Приховування в зображенні', t3))
+
+        results['total_time'] = time.time() - total_start
+        results['private_key'] = private_key
+        return results
+
+    def restore(self, stego_image, private_key, output_file):
+        results = {'steps': []}
+        total_start = time.time()
+
+        # Витягування даних
+        extracted_data, t1 = self.stego.extract_message(stego_image)
+        results['steps'].append(('Витягування з зображення', t1))
+
+        if not extracted_data:
+            return None
+
+        # Парсинг даних
+        data = json.loads(extracted_data)
+        content = data['content']
+        signature = data['signature']
+
+        # Перевірка підпису
+        t2 = time.time()
+        is_valid = self.signature.verify_signature(content, signature, private_key)
+        results['steps'].append(('Перевірка підпису', time.time() - t2))
+
+        # Збереження
+        if is_valid:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+        results['total_time'] = time.time() - total_start
+        results['signature_valid'] = is_valid
+        results['content'] = content
+        return results
+
+
+# GUI
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Система захисту даних")
+        self.root.geometry("800x600")
+        self.root.configure(bg='#1a1a2e')
+
+        self.system = SecureSystem()
+        self.private_key = None
+
+        # Стилі
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('TNotebook', background='#1a1a2e', borderwidth=0)
+        style.configure('TNotebook.Tab', background='#16213e', foreground='white',
+                        padding=[15, 8], font=('Arial', 10, 'bold'))
+        style.map('TNotebook.Tab', background=[('selected', '#0f4c75')])
+
+        # Notebook
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # Вкладки
+        self.create_protect_tab(notebook)
+        self.create_restore_tab(notebook)
+        self.create_analytics_tab(notebook)
+
+    def create_protect_tab(self, notebook):
+        frame = tk.Frame(notebook, bg='#16213e')
+        notebook.add(frame, text='ЗАХИСТ')
+
+        # Поля вводу
+        tk.Label(frame, text="Текстовий файл:", bg='#16213e', fg='white').grid(row=0, column=0, padx=10, pady=5,
+                                                                               sticky='w')
+        self.text_file = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.text_file.grid(row=0, column=1, padx=5, pady=5)
+        tk.Button(frame, text="Огляд", command=lambda: self.browse(self.text_file, [("Text", "*.txt")]),
+                  bg='#3282b8', fg='white').grid(row=0, column=2, padx=5)
+
+        tk.Label(frame, text="Зображення:", bg='#16213e', fg='white').grid(row=1, column=0, padx=10, pady=5, sticky='w')
+        self.image_file = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.image_file.grid(row=1, column=1, padx=5, pady=5)
+        tk.Button(frame, text="Огляд", command=lambda: self.browse(self.image_file, [("Images", "*.png *.jpg")]),
+                  bg='#3282b8', fg='white').grid(row=1, column=2, padx=5)
+
+        tk.Label(frame, text="Вихідне зображення:", bg='#16213e', fg='white').grid(row=2, column=0, padx=10, pady=5,
+                                                                                   sticky='w')
+        self.output_image = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.output_image.insert(0, "protected.png")
+        self.output_image.grid(row=2, column=1, padx=5, pady=5)
+
+        tk.Label(frame, text="Ім'я:", bg='#16213e', fg='white').grid(row=3, column=0, padx=10, pady=5, sticky='w')
+        self.name = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.name.grid(row=3, column=1, padx=5, pady=5)
+
+        tk.Label(frame, text="Дата народження:", bg='#16213e', fg='white').grid(row=4, column=0, padx=10, pady=5,
+                                                                                sticky='w')
+        self.dob = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.dob.grid(row=4, column=1, padx=5, pady=5)
+
+        tk.Label(frame, text="Секретне слово:", bg='#16213e', fg='white').grid(row=5, column=0, padx=10, pady=5,
+                                                                               sticky='w')
+        self.secret = tk.Entry(frame, width=50, show='*', bg='#0f3460', fg='white', insertbackground='white')
+        self.secret.grid(row=5, column=1, padx=5, pady=5)
+
+        tk.Button(frame, text="ЗАХИСТИТИ", command=self.protect,
+                  bg='#00d4ff', fg='black', font=('Arial', 11, 'bold'),
+                  width=20, height=2).grid(row=6, column=0, columnspan=3, pady=20)
+
+        self.protect_result = scrolledtext.ScrolledText(frame, height=10, bg='#0f3460', fg='#00ff88',
+                                                        font=('Courier', 9))
+        self.protect_result.grid(row=7, column=0, columnspan=3, padx=10, pady=10, sticky='ew')
+
+    def create_restore_tab(self, notebook):
+        frame = tk.Frame(notebook, bg='#16213e')
+        notebook.add(frame, text='ВІДНОВЛЕННЯ')
+
+        tk.Label(frame, text="Stego-зображення:", bg='#16213e', fg='white').grid(row=0, column=0, padx=10, pady=5,
+                                                                                 sticky='w')
+        self.stego_file = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.stego_file.grid(row=0, column=1, padx=5, pady=5)
+        tk.Button(frame, text="Огляд", command=lambda: self.browse(self.stego_file, [("Images", "*.png")]),
+                  bg='#3282b8', fg='white').grid(row=0, column=2, padx=5)
+
+        tk.Label(frame, text="Вихідний файл:", bg='#16213e', fg='white').grid(row=1, column=0, padx=10, pady=5,
+                                                                              sticky='w')
+        self.restored_file = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.restored_file.insert(0, "restored.txt")
+        self.restored_file.grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(frame, text="Приватний ключ:", bg='#16213e', fg='white').grid(row=2, column=0, padx=10, pady=5,
+                                                                               sticky='w')
+        self.key = tk.Entry(frame, width=50, bg='#0f3460', fg='white', insertbackground='white')
+        self.key.grid(row=2, column=1, padx=5, pady=5)
+        tk.Button(frame, text="Використати збережений", command=self.use_saved_key,
+                  bg='#ffa500', fg='black').grid(row=2, column=2, padx=5)
+
+        tk.Button(frame, text="ВІДНОВИТИ", command=self.restore,
+                  bg='#ff006e', fg='white', font=('Arial', 11, 'bold'),
+                  width=20, height=2).grid(row=3, column=0, columnspan=3, pady=20)
+
+        self.restore_result = scrolledtext.ScrolledText(frame, height=10, bg='#0f3460', fg='#00ff88',
+                                                        font=('Courier', 9))
+        self.restore_result.grid(row=4, column=0, columnspan=3, padx=10, pady=10, sticky='ew')
+
+    def create_analytics_tab(self, notebook):
+        frame = tk.Frame(notebook, bg='#16213e')
+        notebook.add(frame, text='АНАЛІТИКА')
+
+        tk.Label(frame, text="Статистика операцій", bg='#16213e', fg='#00d4ff',
+                 font=('Arial', 14, 'bold')).pack(pady=10)
+
+        self.analytics_text = scrolledtext.ScrolledText(frame, height=20, bg='#0f3460', fg='white',
+                                                        font=('Courier', 10))
+        self.analytics_text.pack(fill='both', expand=True, padx=10, pady=10)
+
+    def browse(self, entry, filetypes):
+        filename = filedialog.askopenfilename(filetypes=filetypes)
+        if filename:
+            entry.delete(0, tk.END)
+            entry.insert(0, filename)
+
+    def protect(self):
+        if not all([self.text_file.get(), self.image_file.get(), self.name.get(), self.dob.get(), self.secret.get()]):
+            messagebox.showerror("Помилка", "Заповніть всі поля")
+            return
+
+        try:
+            path_to_text = self.text_file.get()
+            # Вираховуємо вхідний розмір
+            input_size = os.path.getsize(path_to_text)
+
+            results = self.system.protect(
+                path_to_text, self.image_file.get(), self.output_image.get(),
+                self.name.get(), self.dob.get(), self.secret.get()
+            )
+
+            results['input_size_bytes'] = input_size
+            results['output_size_bytes'] = os.path.getsize(self.output_image.get())
+
+            self.private_key = results['private_key']
+
+            output = f"Захист успішно виконано\n"
+            output += f"Розмір вхідного файлу: {input_size} байт\n"
+            output += f"Розмір вихідного фото: {results['output_size_bytes']} байт\n"
+            output += "-" * 30 + "\n"
+
+            for step, time_val in results['steps']:
+                output += f"{step}: {time_val:.4f} сек\n"
+            output += f"\nЗагальний час: {results['total_time']:.4f} сек\n"
+            output += f"\nПриватний ключ:\n{self.private_key}\n"
+            output += "\nЗБЕРІГТИ КЛЮЧ! Без нього відновлення неможливе\n"
+
+            self.protect_result.delete(1.0, tk.END)
+            self.protect_result.insert(tk.END, output)
+
+            self.update_analytics(results, 'protect')
+
+            messagebox.showinfo("Успіх", f"Файл захищено: {self.output_image.get()}")
+        except Exception as e:
+            messagebox.showerror("Помилка", str(e))
+
+
+    def restore(self):
+        if not self.stego_file.get() or not self.key.get():
+            messagebox.showerror("Помилка", "Вкажіть файл та ключ")
+            return
+
+        try:
+            results = self.system.restore(
+                self.stego_file.get(), int(self.key.get()), self.restored_file.get()
+            )
+
+            if not results:
+                messagebox.showerror("Помилка", "Не вдалося витягти дані")
+                return
+
+            output = ""
+            if results['signature_valid']:
+                output += "Відновлення успішне! Підпис дійсний\n\n"
+            else:
+                output += "УВАГА! Підпис недійсний! Файл змінено\n\n"
+
+            for step, time_val in results['steps']:
+                output += f"{step}: {time_val:.4f} сек\n"
+            output += f"\nЗагальний час: {results['total_time']:.4f} сек\n"
+            output += f"\nВміст:\n{results['content']}\n"
+
+            self.restore_result.delete(1.0, tk.END)
+            self.restore_result.insert(tk.END, output)
+            self.update_analytics(results, 'restore')
+
+            if results['signature_valid']:
+                messagebox.showinfo("Успіх", "Файл відновлено")
+            else:
+                messagebox.showwarning("Увага", "Підпис недійсний")
+        except Exception as e:
+            messagebox.showerror("Помилка", str(e))
+
+    def use_saved_key(self):
+        if self.private_key:
+            self.key.delete(0, tk.END)
+            self.key.insert(0, str(self.private_key))
+        else:
+            messagebox.showwarning("Увага", "Спочатку виконайте захист")
+
+    def update_analytics(self, results, op_type):
+        self.analytics_text.insert(tk.END, f"\n{'=' * 60}\n")
+        self.analytics_text.insert(tk.END, f"Операція: {op_type.upper()}\n")
+        self.analytics_text.insert(tk.END, f"Час: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        self.analytics_text.insert(tk.END, f"{'=' * 60}\n")
+        if 'input_size_bytes' in results:
+            self.analytics_text.insert(tk.END, f"Розмір вхідного файлу: {results['input_size_bytes']} байт\n")
+        if 'output_size_bytes' in results:
+            self.analytics_text.insert(tk.END, f"Розмір вихідного зображення: {results['output_size_bytes']} байт\n")
+        if 'input_size_bytes' in results:  # Додамо розділювач, якщо є розміри
+            self.analytics_text.insert(tk.END, f"{'-' * 30}\n")
+
+        for step, time_val in results['steps']:
+            self.analytics_text.insert(tk.END, f"  {step}: {time_val:.4f} сек\n")
+
+        self.analytics_text.insert(tk.END, f"Загальний час: {results['total_time']:.4f} сек\n")
+        self.analytics_text.see(tk.END)
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
